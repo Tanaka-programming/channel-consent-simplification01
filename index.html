@@ -1,88 +1,152 @@
-<!-- index.html (Pattern 1: 起動時同意) -->
+<!-- index.html（未友だち→OAプロフィール遷移→復帰で再チェック） -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Pattern 1: 起動時同意</title>
+  <title>OAプロフィール遷移サンプル</title>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   <style>
     body { font-family: system-ui, sans-serif; padding: 16px; }
-    button { padding: 10px 16px; border-radius: 10px; border: 1px solid #ddd; }
+    button { padding: 10px 16px; border-radius: 10px; border: 1px solid #ddd; margin-right: 8px; }
     .card { border: 1px solid #eee; border-radius: 12px; padding: 16px; margin: 12px 0; }
     .ok { color: #0a7a0a; } .warn { color: #a15a00; } .err { color: #b00020; }
   </style>
 </head>
 <body>
-  <h1>Pattern 1: 起動時同意</h1>
+  <h1>未友だち時にOAプロフィールへ誘導するサンプル</h1>
+
   <div id="status" class="card">初期化中...</div>
-  <div id="content" class="card" style="display:none;">
-    <p>権限・友だち関係が揃いました。メイン機能を利用できます。</p>
+
+  <div id="actions" class="card" style="display:none;">
+    <p>権限・友だち関係OK。メイン機能をお試しください。</p>
     <button id="btnProfile">プロフィール取得（liff.getProfile）</button>
+    <button id="btnSend">メッセージ送信（liff.sendMessages）</button>
     <pre id="out"></pre>
   </div>
+
   <script>
-    const LIFF_ID = "2008456698-VKx1nnJd"; // 差し替え
+    // ★差し替えポイント
+    const LIFF_ID = "2008456698-VKx1nnJd";   // そのままでOK（あなたの値）
+    const OA_ID   = "@800dhxkb"; // ←必ず置き換え（@を含む）
+    const OA_ADD_URL = "https://line.me/R/ti/p/" + encodeURIComponent(OA_ID);
+
+    // ===== ユーティリティ =====
+    const $  = (id) => document.getElementById(id);
+    const set = (id, html) => $(id).innerHTML = html;
 
     async function ensureLogin() {
-      if (!liff.isLoggedIn()) {
-        await liff.login();
-        return false; // リダイレクト
-      }
+      if (!liff.isLoggedIn()) { await liff.login(); return false; }
       return true;
     }
 
-    // 友だち関係の確認（未友だちなら同意を促す）
-    async function ensureFriendshipAndPermissions() {
-      // 起動時に友だち関係を確認（これがアクセス許可要求画面を出すトリガーになり得る）
-      const fs = await liff.getFriendship(); // 要 profile スコープ
-      if (!fs.friendFlag) {
-        // ガイドテキストを status に出す
-        document.getElementById("status").innerHTML =
-          `<p class="warn">このミニアプリを便利に使うには、公式アカウントの友だち追加が必要です。</p>
-           <p>続行でアクセス許可を求めます。</p>`;
-        // すべての要求可能権限を明示的に要求
-        await liff.permission.requestAll(); // ここでアクセス許可要求画面
-      } else {
-        // 友だち関係OKでも、未付与スコープがあれば問い合わせ
-        const need = await ensureScopes(["profile"]);
-        if (need) await liff.permission.requestAll();
-      }
-    }
-
+    // 必要スコープが未付与なら requestAll を出す
     async function ensureScopes(scopes) {
-      // 一つでも prompt なら true を返す
       for (const s of scopes) {
         const st = await liff.permission.query(s);
-        if (st.state === "prompt") return true;
+        if (st.state === "prompt") {
+          await liff.permission.requestAll();
+          break;
+        }
       }
-      return false;
     }
 
+    // OAプロフィール（友だち追加）へ遷移（LINE内ブラウザ）
+    function openOAProfileInternal() {
+      liff.openWindow({ url: OA_ADD_URL, external: false });
+    }
+    // 外部ブラウザで開きたい場合はこちらを使用
+    function openOAProfileExternal() {
+      liff.openWindow({ url: OA_ADD_URL, external: true });
+    }
+
+    // 復帰時に友だち状態を再確認（visibilitychange で復帰検知）
+    async function recheckFriendshipAndProceed() {
+      try {
+        const fs = await liff.getFriendship(); // 要 profile
+        if (fs.friendFlag) {
+          set("status", `<p class="ok">友だち追加を確認しました。準備完了。</p>`);
+          $("actions").style.display = "block";
+        } else {
+          set("status", `
+            <p class="warn">まだ友だち追加が完了していません。</p>
+            <button id="btnGoOA">友だち追加へ（LINE内で開く）</button>
+            <button id="btnGoOAExt">友だち追加へ（外部ブラウザ）</button>
+            <button id="btnRetry">再チェック</button>
+          `);
+          $("btnGoOA").onclick = openOAProfileInternal;
+          $("btnGoOAExt").onclick = openOAProfileExternal;
+          $("btnRetry").onclick = recheckFriendshipAndProceed;
+        }
+      } catch (e) {
+        set("status", `<p class="err">再確認エラー: ${e.message}</p>`);
+      }
+    }
+
+    // 起動時：友だち関係と必要スコープを確認。未友だちならOAへ誘導UIを表示
+    async function ensureFriendshipAndPermissions() {
+      // まずは profile スコープなどが必要なので確認
+      await ensureScopes(["profile"]); // 友だち関係確認に必要
+
+      const fs = await liff.getFriendship();
+      if (!fs.friendFlag) {
+        set("status", `
+          <p class="warn">このミニアプリを便利に使うには、公式アカウントの友だち追加が必要です。</p>
+          <p>「友だち追加へ」を押すと OA のプロフィール／追加画面が開きます。</p>
+          <button id="btnGoOA">友だち追加へ（LINE内で開く）</button>
+          <button id="btnGoOAExt">友だち追加へ（外部ブラウザ）</button>
+          <button id="btnRetry">追加後に再チェック</button>
+        `);
+        $("btnGoOA").onclick = openOAProfileInternal;
+        $("btnGoOAExt").onclick = openOAProfileExternal;
+        $("btnRetry").onclick = recheckFriendshipAndProceed;
+      } else {
+        set("status", `<p class="ok">友だち関係OK。</p>`);
+        $("actions").style.display = "block";
+      }
+    }
+
+    // 復帰検知：OA画面から戻ったら自動で再チェック
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) recheckFriendshipAndProceed();
+    });
+
+    // ===== エントリーポイント =====
     async function main() {
-      const status = document.getElementById("status");
       try {
         await liff.init({ liffId: LIFF_ID });
-        const loggedIn = await ensureLogin();
-        if (!loggedIn) return; // loginで遷移
+        if (!await ensureLogin()) return;
 
-        status.textContent = "起動時に権限と友だち関係を確認しています...";
+        set("status", "起動時に友だち関係と権限を確認しています...");
         await ensureFriendshipAndPermissions();
 
-        status.innerHTML = `<p class="ok">準備完了</p>`;
-        document.getElementById("content").style.display = "block";
-      } catch (e) {
-        status.innerHTML = `<p class="err">初期化エラー: ${e.message}</p>`;
-      }
+        // メイン機能のデモ
+        $("btnProfile").onclick = async () => {
+          try {
+            // 念のため profile の付与をチェック
+            const st = await liff.permission.query("profile");
+            if (st.state === "prompt") await liff.permission.requestAll();
+            const p = await liff.getProfile();
+            $("out").textContent = JSON.stringify(p, null, 2);
+          } catch (e) {
+            $("out").textContent = "取得失敗: " + e.message;
+          }
+        };
 
-      document.getElementById("btnProfile").onclick = async () => {
-        try {
-          const p = await liff.getProfile(); // profile スコープ
-          document.getElementById("out").textContent = JSON.stringify(p, null, 2);
-        } catch (e) {
-          document.getElementById("out").textContent = "取得失敗: " + e.message;
-        }
-      };
+        $("btnSend").onclick = async () => {
+          try {
+            const st = await liff.permission.query("chat_message.write");
+            if (st.state === "prompt") await liff.permission.requestAll();
+            await liff.sendMessages([{ type: "text", text: "Hello from LIFF sample!" }]);
+            $("out").textContent = "メッセージを送信しました。";
+          } catch (e) {
+            $("out").textContent = "送信失敗: " + e.message;
+          }
+        };
+
+      } catch (e) {
+        set("status", `<p class="err">初期化エラー: ${e.message}</p>`);
+      }
     }
     main();
   </script>
