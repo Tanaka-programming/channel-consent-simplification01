@@ -1,0 +1,90 @@
+<!-- index.html (Pattern 1: 起動時同意) -->
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pattern 1: 起動時同意</title>
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <style>
+    body { font-family: system-ui, sans-serif; padding: 16px; }
+    button { padding: 10px 16px; border-radius: 10px; border: 1px solid #ddd; }
+    .card { border: 1px solid #eee; border-radius: 12px; padding: 16px; margin: 12px 0; }
+    .ok { color: #0a7a0a; } .warn { color: #a15a00; } .err { color: #b00020; }
+  </style>
+</head>
+<body>
+  <h1>Pattern 1: 起動時同意</h1>
+  <div id="status" class="card">初期化中...</div>
+  <div id="content" class="card" style="display:none;">
+    <p>権限・友だち関係が揃いました。メイン機能を利用できます。</p>
+    <button id="btnProfile">プロフィール取得（liff.getProfile）</button>
+    <pre id="out"></pre>
+  </div>
+  <script>
+    const LIFF_ID = "2008456698-VKx1nnJd"; // 差し替え
+
+    async function ensureLogin() {
+      if (!liff.isLoggedIn()) {
+        await liff.login();
+        return false; // リダイレクト
+      }
+      return true;
+    }
+
+    // 友だち関係の確認（未友だちなら同意を促す）
+    async function ensureFriendshipAndPermissions() {
+      // 起動時に友だち関係を確認（これがアクセス許可要求画面を出すトリガーになり得る）
+      const fs = await liff.getFriendship(); // 要 profile スコープ
+      if (!fs.friendFlag) {
+        // ガイドテキストを status に出す
+        document.getElementById("status").innerHTML =
+          `<p class="warn">このミニアプリを便利に使うには、公式アカウントの友だち追加が必要です。</p>
+           <p>続行でアクセス許可を求めます。</p>`;
+        // すべての要求可能権限を明示的に要求
+        await liff.permission.requestAll(); // ここでアクセス許可要求画面
+      } else {
+        // 友だち関係OKでも、未付与スコープがあれば問い合わせ
+        const need = await ensureScopes(["profile"]);
+        if (need) await liff.permission.requestAll();
+      }
+    }
+
+    async function ensureScopes(scopes) {
+      // 一つでも prompt なら true を返す
+      for (const s of scopes) {
+        const st = await liff.permission.query(s);
+        if (st.state === "prompt") return true;
+      }
+      return false;
+    }
+
+    async function main() {
+      const status = document.getElementById("status");
+      try {
+        await liff.init({ liffId: LIFF_ID });
+        const loggedIn = await ensureLogin();
+        if (!loggedIn) return; // loginで遷移
+
+        status.textContent = "起動時に権限と友だち関係を確認しています...";
+        await ensureFriendshipAndPermissions();
+
+        status.innerHTML = `<p class="ok">準備完了</p>`;
+        document.getElementById("content").style.display = "block";
+      } catch (e) {
+        status.innerHTML = `<p class="err">初期化エラー: ${e.message}</p>`;
+      }
+
+      document.getElementById("btnProfile").onclick = async () => {
+        try {
+          const p = await liff.getProfile(); // profile スコープ
+          document.getElementById("out").textContent = JSON.stringify(p, null, 2);
+        } catch (e) {
+          document.getElementById("out").textContent = "取得失敗: " + e.message;
+        }
+      };
+    }
+    main();
+  </script>
+</body>
+</html>
