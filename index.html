@@ -3,61 +3,81 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>友だち追加デモ</title>
-    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <title>LIFF ID 不整合検証テスト</title>
     <style>
-        body { font-family: sans-serif; text-align: center; padding: 50px 20px; }
-        button {
-            background-color: #06C755; color: white; border: none;
-            padding: 15px 30px; font-size: 16px; border-radius: 8px;
-            cursor: pointer; display: none; margin: 20px auto;
-        }
-        #status { color: #666; margin-bottom: 20px; }
+        body { font-family: sans-serif; padding: 20px; background-color: #f9f9f9; }
+        .box { padding: 15px; border-radius: 8px; margin-bottom: 20px; word-break: break-all; }
+        .info { background: #e9ecef; border: 1px solid #ced4da; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        input[type="text"] { width: 100%; padding: 10px; margin: 10px 0; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; font-size: 16px; }
+        button { background: #06C755; color: white; border: none; padding: 12px 20px; border-radius: 5px; font-size: 16px; cursor: pointer; width: 100%; font-weight: bold; }
+        button:active { background: #05a044; }
     </style>
 </head>
 <body>
-
-    <h2>LIFF 友だち追加デモ</h2>
-    <p id="status">LIFFを初期化中...</p>
+    <h2>LIFF ID 初期化テスト</h2>
     
-    <button id="friendButton" onclick="requestFriend()">公式アカウントを友だち追加する</button>
+    <div class="box info">
+        <p><strong>現在の環境:</strong> <span id="env">判定中...</span></p>
+        <p style="font-size: 0.9em; color: #555;">※liff.init() 実行前でも環境判定は可能です。</p>
+    </div>
 
+    <p>初期化に使用する <strong>LIFF ID</strong> を入力してください：</p>
+    <input type="text" id="liff-id-input" placeholder="例: 1234567890-abcdefgh">
+    <button onclick="testInit()">liff.init() を実行</button>
+
+    <div id="result-area" class="box" style="display: none; margin-top: 20px;"></div>
+
+    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <script>
-        // 🚨 ここにLINE Developersで取得したLIFF IDを入力してください
-        const LIFF_ID = "2006882851-zv6OnMLq";
+        // ページ読み込み時に実行環境を表示
+        document.addEventListener("DOMContentLoaded", () => {
+            const envSpan = document.getElementById("env");
+            const os = liff.getOS();
+            const inClient = liff.isInClient() ? "LINEアプリ内 (LIFFブラウザ)" : "外部ブラウザ (Safari/Chrome等)";
+            envSpan.textContent = `${os} / ${inClient}`;
+        });
 
-        // LIFFの初期化
-        async function initializeLiff() {
+        // ボタンクリック時に指定されたIDで初期化を試みる
+        async function testInit() {
+            const liffId = document.getElementById("liff-id-input").value.trim();
+            const resultArea = document.getElementById("result-area");
+            
+            if (!liffId) {
+                alert("LIFF IDを入力してください");
+                return;
+            }
+
+            // UIをリセットして実行中表示
+            resultArea.style.display = "block";
+            resultArea.className = "box info";
+            resultArea.innerHTML = `<strong>${liffId}</strong> で初期化中...`;
+
             try {
-                await liff.init({ liffId: LIFF_ID });
+                // ここで入力された任意のLIFF IDを使って初期化
+                await liff.init({ liffId: liffId });
                 
-                if (liff.isLoggedIn()) {
-                    document.getElementById('status').innerText = "準備完了！ボタンを押してください。";
-                    document.getElementById('friendButton').style.display = "block";
-                } else {
-                    document.getElementById('status').innerText = "ログインが必要です。";
-                    liff.login(); // 外部ブラウザの場合はログイン画面へ遷移
-                }
+                // 成功ルート（外部ブラウザ等で発生しうる）
+                resultArea.className = "box success";
+                resultArea.innerHTML = `
+                    <strong>✅ 初期化成功！</strong><br>
+                    指定したLIFF IDで初期化されました。<br><br>
+                    <small>※LINEアプリ内で「別のアプリのID」を指定した場合、ここには到達しません。</small>
+                `;
             } catch (err) {
-                document.getElementById('status').innerText = "初期化エラー: " + err.message;
-                console.error(err);
+                // 失敗ルート（LINEアプリ内で別アプリのIDを指定した場合に発生する）
+                resultArea.className = "box error";
+                resultArea.innerHTML = `
+                    <strong>❌ 初期化エラー</strong><br><br>
+                    <strong>エラーコード:</strong> ${err.code || 'N/A'}<br>
+                    <strong>メッセージ:</strong> ${err.message}<br>
+                    <hr>
+                    <small>※URL元のIDと入力したIDが不一致のため、LINEアプリのセキュリティ機構によりブロックされました。</small>
+                `;
+                console.error("Init Error:", err);
             }
         }
-
-        // 友だち追加APIを呼び出す関数
-        function requestFriend() {
-            liff.requestFriendship()
-                .then(() => {
-                    document.getElementById('status').innerText = "友だち追加の操作が完了しました（または画面を閉じました）。";
-                })
-                .catch((err) => {
-                    document.getElementById('status').innerText = "エラーが発生しました: " + err.message;
-                    console.error(err);
-                });
-        }
-
-        // ページ読み込み時に初期化を実行
-        window.onload = initializeLiff;
     </script>
 </body>
 </html>
